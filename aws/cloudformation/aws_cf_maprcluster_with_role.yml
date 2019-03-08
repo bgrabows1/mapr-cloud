@@ -1,0 +1,663 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Setup a MapR cluster with the selected MEP version and auto-configuration template
+  for your specific use case. The machine type for nodes, number of nodes,
+  the number of disks, size and type of disks per node in the cluster are configurable.
+  --AWSMP::c4e41a39-a53d-4f83-84a0-760f94bc31b2::8d0a9abb-2eca-4aa1-b7ac-a0db0e47983c
+Parameters:
+  clusterName:
+    Description: Cluster name
+    Default: my.cluster.com
+    Type: String
+  MEP:
+    Description: MapR Ecosystem Pack version
+    Type: String
+    AllowedValues: [ 5.0.0 ]
+    Default: 5.0.0
+  provisioningTemplate:
+    Description: Auto-provisioning templates for specific use cases
+    Type: String
+    AllowedValues: ["Converged-Platform", "Data-Lake", "Data-Exploration", "Operational-Analytics", "Operational-Analytics-using-MapR-DB", "Real-Time-Analytics-with-Spark", "Real-Time-Analytics-with-Streams", "Custom-Configuration" ]
+    Default: "Converged-Platform"
+  nodeCount:
+    Description: Number of nodes in cluster
+    Type: Number
+    Default: 3
+  useInstanceStore:
+    Description: If the machine type supports instance stores (ephemeral disks), use only those disks. No EBS volumes will be attached.
+    Type: String
+    AllowedValues: [True, False]
+    Default: False
+  diskType:
+    Description: AWS EBS volume types - http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/EBSVolumeTypes.html. Min for st1 volumes is 500G
+    Type: String
+    AllowedValues: [ "gp2", "io1", "st1" ]
+    Default: "gp2"
+  diskSize:
+    Description: GB
+    Type: Number
+    Default: 100
+  diskCount:
+    Description: Number of EBS volumes per node
+    Type: Number
+    AllowedValues: [ 1, 2, 3, 4, 5, 6, 7, 8 ]
+    Default: 3
+  clusterAdminPassword:
+    Description: Password for user mapr. mapr is setup as the cluster admin user. You use it to login to the MapR installer UI as well as the web UI of different components. The uid and gid for this user is set to 5000.
+    Type: String
+    NoEcho: True
+    AllowedPattern: ".+"
+    ConstraintDescription: must provide a password
+  clusterAdminPasswordConfirm:
+    Description: Confirm the password you typed in above.
+    Type: String
+    NoEcho: True
+  keyName:
+    Description: AWS key pair used for creating nodes
+    Type: AWS::EC2::KeyPair::KeyName
+    AllowedPattern: ".+"
+    ConstraintDescription: must select an existing EC2 KeyPair
+  instanceType:
+    Description: AWS Instance types - https://aws.amazon.com/ec2/instance-types
+    Type: String
+    AllowedValues: [ m4.xlarge, m4.2xlarge, m4.4xlarge, m4.10xlarge, m4.16xlarge, d2.xlarge, d2.2xlarge, d2.4xlarge, d2.8xlarge, h1.2xlarge, h1.4xlarge, h1.8xlarge, h1.16xlarge, i3.large, i3.xlarge, i3.2xlarge, i3.4xlarge, i3.8xlarge, m3.xlarge, m3.2xlarge, c4.2xlarge, c4.4xlarge, c4.8xlarge, c3.2xlarge, c3.4xlarge, c3.8xlarge, r4.large, r4.xlarge, r4.2xlarge, r4.4xlarge, r4.8xlarge, r3.large, r3.xlarge, r3.2xlarge, r3.4xlarge, r3.8xlarge  ]
+    Default: m4.4xlarge
+  installerOnItsOwn:
+    Description: Setup the cluster installer on a separate node
+    Type: String
+    AllowedValues: [True, False]
+    Default: true
+  useSubnet:
+    Description: Id of subnet (e.g. subnet-123456). The subnet should be able to access the Internet. Leave it empty to create a new VPC and subnets.
+    Type: String
+    Default: ""
+  securityGroups:
+    Description: Security group ids (e.g. sg-12345,sg-34567) for an existing subnet if specified above, otherwise empty. Include all required security group ids including "default".
+    Type: CommaDelimitedList
+    Default: ""
+  assignPublicIP:
+    Description: Assign public IP address to the nodes
+    Type: String
+    AllowedValues: [True, False]
+    Default: false
+  publicAccessCIDR:
+    Description: e.g. 10.10.0.0/20. Recommended to restrict to your corporate IP range. Not used if using existing subnet.
+    Type: String
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: must be a valid CIDR in the format a.b.c.d/n
+Rules:
+  MapRPasswordVerify:
+    Assertions:
+      - Assert: !Equals [ !Ref clusterAdminPassword, !Ref clusterAdminPasswordConfirm ]
+        AssertDescription: ?Cluster admin passwords do not match"
+Conditions:
+  CreateVPC: !Equals [!Ref useSubnet, ""]
+  UseInstallerNode: !Equals [!Ref installerOnItsOwn, false]
+  UsePublicIP: !Equals [!Ref assignPublicIP, true]
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "MapR Cluster Configuration"
+        Parameters:
+          - clusterName
+          - clusterAdminPassword
+          - clusterAdminPasswordConfirm
+          - MEP
+          - provisioningTemplate
+          - nodeCount
+          - installerOnItsOwn
+      -
+        Label:
+          default: "Node Configuration"
+        Parameters:
+          - instanceType
+          - useInstanceStore
+          - diskCount
+          - diskType
+          - diskSize
+      -
+        Label:
+          default: "AWS Infrastructure Configuration"
+        Parameters:
+          - keyName
+          - useSubnet
+          - securityGroups
+          - assignPublicIP
+          - publicAccessCIDR
+Mappings:
+  Variables:
+    Keys:
+      SSHUSER: "centos"
+      MAPRCORE: "6.0.1"
+  StanzaURL:
+    "Custom-Configuration":
+      URL: ""
+      serviceTemplate: ""
+    "Converged-Platform":
+      URL: "https://raw.githubusercontent.com/mapr/mapr-cloud-templates/master/1.9/aws/mapr-core.yml"
+      serviceTemplate: "template-05-converged"
+    "Data-Lake":
+      URL: "https://raw.githubusercontent.com/mapr/mapr-cloud-templates/master/1.9/aws/mapr-core.yml"
+      serviceTemplate: "template-10-hadoop"
+    "Data-Exploration":
+      URL: "https://raw.githubusercontent.com/mapr/mapr-cloud-templates/master/1.9/aws/mapr-core.yml"
+      serviceTemplate: "template-20-drill"
+    "Operational-Analytics":
+      URL: "https://raw.githubusercontent.com/mapr/mapr-cloud-templates/master/1.9/aws/mapr-core.yml"
+      serviceTemplate: "template-30-maprdb2"
+    "Operational-Analytics-using-MapR-DB":
+      URL: "https://raw.githubusercontent.com/mapr/mapr-cloud-templates/master/1.9/aws/mapr-core.yml"
+      serviceTemplate: "template-30-maprdb"
+    "Operational-Applications-using-MapR-DB-and-DQS":
+      URL: "https://raw.githubusercontent.com/mapr/mapr-cloud-templates/master/1.9/aws/mapr-core.yml"
+      serviceTemplate: "template-30-maprdb3"
+    "Real-Time-Analytics-with-Spark":
+      URL: "https://raw.githubusercontent.com/mapr/mapr-cloud-templates/master/1.9/aws/mapr-core.yml"
+      serviceTemplate: "template-60-spark"
+    "Real-Time-Analytics-with-Streams":
+      URL: "https://raw.githubusercontent.com/mapr/mapr-cloud-templates/master/1.9/aws/mapr-core.yml"
+      serviceTemplate: "template-40-maprstreams"
+  SubnetConfig:
+    VPC:
+      CIDR: 172.24.0.0/16
+    Public:
+      CIDR: 172.24.0.0/24
+    Private:
+      CIDR: 172.24.8.0/22
+  RegionMap:
+    # If you update these AMI, make sure to update the SSHUSER value in this template
+    us-east-1: # N Viriginia
+      AMI: ami-be9f35c1
+    us-east-2: # Ohio
+      AMI: ami-d67240b3
+    us-west-1: # California
+      AMI: ami-e5243985
+    us-west-2: # Oregon
+      AMI: ami-774b220f
+    us-gov-west-1: # AWS GovCloud
+      AMI: ami-8c8315ed
+    ca-central-1: # Qu?bec
+      AMI: ami-b356d7d7
+    eu-central-1: # Frankfurt
+      AMI: ami-2e6c4bc5
+    eu-west-1: # Ireland
+      AMI: ami-f8fbd981
+    eu-west-2: # London
+      AMI: ami-77dd3e10
+    ap-southeast-1: # Singapore
+      AMI: ami-2a3c1056
+    ap-southeast-2: # Sydney
+      AMI: ami-9bdc16f9
+    ap-south-1 : # Mumbai
+      AMI: ami-83b395ec
+    ap-northeast-1: # Tokyo
+      AMI: ami-5cfb1f23
+    ap-northeast-2: # Seoul
+      AMI: ami-420ba52c
+    sa-east-1: # S?o Paulo
+      AMI: ami-3c0c5f50
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Condition: CreateVPC
+    Properties:
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      CidrBlock:
+        Fn::FindInMap:
+        - SubnetConfig
+        - VPC
+        - CIDR
+      Tags:
+      - Key: Name
+        Value: !Join ["-", [!Ref clusterName, "vpc"]]
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Condition: CreateVPC
+    Properties:
+      VpcId:
+        Ref: VPC
+      CidrBlock:
+        Fn::FindInMap:
+        - SubnetConfig
+        - Public
+        - CIDR
+      Tags:
+      - Key: Name
+        Value: !Join ["-", [!Ref clusterName, "public"]]
+      - Key: Network
+        Value: Public
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Condition: CreateVPC
+    Properties:
+      VpcId:
+        Ref: VPC
+      CidrBlock:
+        Fn::FindInMap:
+        - SubnetConfig
+        - Private
+        - CIDR
+      Tags:
+      - Key: Name
+        Value: !Join ["-", [!Ref clusterName, "private"]]
+      - Key: Network
+        Value: Private
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Condition: CreateVPC
+    Properties:
+      Tags:
+      - Key: Name
+        Value: !Join ["-", [!Ref clusterName, "ig"]]
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Condition: CreateVPC
+    Properties:
+      VpcId:
+        Ref: VPC
+      InternetGatewayId:
+        Ref: InternetGateway
+  NATEIP:
+    Type: AWS::EC2::EIP
+    Condition: CreateVPC
+    Properties:
+      Domain: vpc
+  NATGateway:
+    #DependsOn: VPCGatewayAttachment
+    Type: AWS::EC2::NatGateway
+    Condition: CreateVPC
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+        - NATEIP
+        - AllocationId
+      SubnetId:
+        Ref: PublicSubnet
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: CreateVPC
+    Properties:
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: !Join ["-", [!Ref clusterName, "public"]]
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: CreateVPC
+    Properties:
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: !Join ["-", [!Ref clusterName, "internal"]]
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateVPC
+    Properties:
+      SubnetId:
+        Ref: PublicSubnet
+      RouteTableId:
+        Ref: PublicRouteTable
+  PrivateSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateVPC
+    Properties:
+      SubnetId:
+        Ref: PrivateSubnet
+      RouteTableId:
+        Ref: PrivateRouteTable
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Condition: CreateVPC
+    Properties:
+      RouteTableId:
+        Ref: PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId:
+        Ref: InternetGateway
+  NATRoute:
+    Type: AWS::EC2::Route
+    Condition: CreateVPC
+    Properties:
+      RouteTableId:
+        Ref: PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId:
+        Ref: NATGateway
+  PublicSSHAccess:
+    Type: AWS::EC2::SecurityGroup
+    Condition: CreateVPC
+    Properties:
+      GroupDescription: "public SSH Access"
+      VpcId:
+        Ref: VPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '22'
+        ToPort: '22'
+        CidrIp: !Ref publicAccessCIDR
+  WebAccess:
+    Type: AWS::EC2::SecurityGroup
+    Condition: CreateVPC
+    Properties:
+      GroupDescription: "Installer Access"
+      VpcId:
+        Ref: VPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '9443'
+        ToPort: '9443'
+        CidrIp: !Ref publicAccessCIDR
+      - IpProtocol: tcp
+        FromPort: '8443'
+        ToPort: '8443'
+        CidrIp: !Ref publicAccessCIDR
+      - IpProtocol: tcp
+        FromPort: '8042'
+        ToPort: '8042'
+        CidrIp: !Ref publicAccessCIDR
+      - IpProtocol: tcp
+        FromPort: '8044'
+        ToPort: '8044'
+        CidrIp: !Ref publicAccessCIDR
+      - IpProtocol: tcp
+        FromPort: '8047'
+        ToPort: '8047'
+        CidrIp: !Ref publicAccessCIDR
+      - IpProtocol: tcp
+        FromPort: '8088'
+        ToPort: '8088'
+        CidrIp: !Ref publicAccessCIDR
+      - IpProtocol: tcp
+        FromPort: '8090'
+        ToPort: '8090'
+        CidrIp: !Ref publicAccessCIDR
+      - IpProtocol: tcp
+        FromPort: '8888'
+        ToPort: '8888'
+        CidrIp: !Ref publicAccessCIDR
+      - IpProtocol: tcp
+        FromPort: '18080'
+        ToPort: '18080'
+        CidrIp: !Ref publicAccessCIDR
+      - IpProtocol: tcp
+        FromPort: '19888'
+        ToPort: '19888'
+        CidrIp: !Ref publicAccessCIDR
+      - IpProtocol: tcp
+        FromPort: '19890'
+        ToPort: '19890'
+        CidrIp: !Ref publicAccessCIDR
+      - IpProtocol: tcp
+        FromPort: '18480'
+        ToPort: '18480'
+        CidrIp: !Ref publicAccessCIDR
+      - IpProtocol: tcp
+        FromPort: '5601'
+        ToPort: '5601'
+        CidrIp: !Ref publicAccessCIDR
+      - IpProtocol: tcp
+        FromPort: '4440'
+        ToPort: '4440'
+        CidrIp: !Ref publicAccessCIDR
+      - IpProtocol: tcp
+        FromPort: '3000'
+        ToPort: '3000'
+        CidrIp: !Ref publicAccessCIDR
+  MapRInstallerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join [ "-", ["mapr-role", !Ref "clusterName", !Ref "AWS::Region"]]
+      Path: "/"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        -
+          PolicyName: "maprinstaller"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              Effect: "Allow"
+              Resource: "*"
+              Action:
+                - "autoscaling:Describe*"
+                - "autoscaling:CreateLaunchConfiguration"
+                - "autoscaling:DeleteLaunchConfiguration"
+                - "autoscaling:UpdateAutoScalingGroup"
+                - "autoscaling:SuspendProcesses"
+                - "ec2:CreateKeyPair"
+                - "ec2:DeleteKeyPair"
+                - "ec2:ImportKeyPair"
+                - "ec2:DescribeKeyPairs"
+                - "ec2:DescribeInstances"
+                - "ec2:DescribeInstanceAttribute"
+                - "ec2:ModifyInstanceAttribute"
+                - "ec2:DescribeSubnets"
+                - "ec2:RunInstances"
+                - "ec2:StartInstances"
+                - "ec2:StopInstances"
+                - "ec2:CreateVolume"
+                - "ec2:AttachVolume"
+                - "ec2:DescribeVolumes"
+  MapRInstanceProfile:
+      Type: "AWS::IAM::InstanceProfile"
+      Properties:
+        Roles:
+          -
+            !Ref MapRInstallerRole
+  ClusterNodeConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: !FindInMap [ RegionMap, !Ref "AWS::Region", "AMI" ]
+      InstanceType: !Ref instanceType
+      KeyName: !Ref keyName
+      EbsOptimized: True
+      AssociatePublicIpAddress: !Ref assignPublicIP
+      SecurityGroups: !If [CreateVPC, [!GetAtt [VPC, DefaultSecurityGroup], !Ref WebAccess], !Ref securityGroups]
+  ClusterNodes:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Join [":", ["Cluster", !Ref clusterName]]
+          PropagateAtLaunch: true
+          ResourceType: "auto-scaling-group"
+          ResourceId: !Ref clusterName
+        - Key: Cluster
+          Value: !Ref clusterName
+          PropagateAtLaunch: true
+          ResourceType: "auto-scaling-group"
+          ResourceId: !Ref clusterName
+        - Key: MapRTracker
+          Value: AWSMarketplace
+          PropagateAtLaunch: true
+          ResourceType: "auto-scaling-group"
+          ResourceId: !Ref clusterName
+      LaunchConfigurationName: !Ref ClusterNodeConfig
+      DesiredCapacity: 0
+      MaxSize: 0
+      MinSize: 0
+      VPCZoneIdentifier: !If [CreateVPC, !Split [",", !If [UsePublicIP, !Ref PublicSubnet, !Ref PrivateSubnet]], !Split [",", !Ref useSubnet]]
+#   InstallWaitHandle:
+#     Type: AWS::CloudFormation::WaitConditionHandle
+#   InstallWaitCondition:
+#     Type: AWS::CloudFormation::WaitCondition
+#     DependsOn: VPC
+#     Properties:
+#       Handle: !Ref "InstallWaitHandle"
+#       Timeout: "3000"
+  MaprInstaller:
+    Type: AWS::EC2::Instance
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref clusterName, "Installer"]]
+      ImageId:
+        Fn::FindInMap:
+        - RegionMap
+        - Ref: AWS::Region
+        - AMI
+      KeyName:
+        Ref: keyName
+      InstanceType: !If [UseInstallerNode, !Ref instanceType, t2.small]
+      IamInstanceProfile: !Ref MapRInstanceProfile
+      NetworkInterfaces:
+        - DeleteOnTermination: "true"
+          DeviceIndex: 0
+          AssociatePublicIpAddress: !Ref assignPublicIP
+          SubnetId: !If [CreateVPC, !If [UsePublicIP, !Ref PublicSubnet, !Ref PrivateSubnet], !Ref useSubnet]
+          GroupSet: !If [CreateVPC, [!GetAtt [VPC, DefaultSecurityGroup], !Ref PublicSSHAccess, !Ref WebAccess ], !Ref securityGroups]
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            #!/bin/bash
+            MAPR_CORE=${MAPR_CORE}
+            SSH_USER=${SSH_USER}
+            M_HOME=/opt/mapr/installer
+            M_USER_PWD=${clusterAdminPassword}
+            statusFile=$M_HOME/logs/cf_status
+            if ! wget -q -t 10 --retry-connrefused --waitretry=30 http://aws.amazon.com; then
+              echo "{ \"Status\" : \"FAILURE\", \"UniqueId\" : \"${clusterName}\", \"Data\" : \"No Internet connection\", \"Reason\" : \"No Internet Connection. Internet access is required.\" }" > $statusFile
+              #curl -T $statusFile '${InstallWaitHandle}'
+              exit 1
+            fi
+            $M_HOME/bin/mapr-setup.sh -y upgrade
+            service mapr-installer start
+            systemctl enable mapr-installer
+            M_USER=$(grep installer_admin_id "$M_HOME/data/properties.json" | cut -d\" -f4)
+            M_GROUP=$(grep installer_admin_group "$M_HOME/data/properties.json" | cut -d\" -f4)
+            echo "$M_USER:$M_USER_PWD" | chpasswd
+            if ( $? != 0); then
+              echo "{ \"Status\" : \"FAILURE\", \"UniqueId\" : \"${clusterName}\", \"Data\" : \"Unable to reset password for $M_USER\", \"Reason\" : \"Unable to reset password for $M_USER\" }" > $statusFile
+              #curl -T $statusFile '${InstallWaitHandle}'
+              exit 1
+            fi
+            $M_HOME/bin/aws/keypair init ${clusterName}
+            if [ ! -f $M_HOME/data/aws_key ]; then
+              echo "{ \"Status\" : \"FAILURE\", \"UniqueId\" : \"${clusterName}\", \"Data\" : \"AWS Key file not found. You may be using an old installer.\", \"Reason\" : \"AWS Key file not found. You may be using an old installer.\" }" > $statusFile
+              #curl -T $statusFile '${InstallWaitHandle}'
+              exit 1
+            fi
+            key=$(cat $M_HOME/data/aws_key)
+            key_file=$M_HOME/data/$key
+            auth_file=$(getent passwd $SSH_USER | cut -d':' -f6)
+            cat $key_file.pub >> $auth_file/.ssh/authorized_keys
+            chown $M_USER:$M_GROUP $key_file
+            chmod 400 $key_file
+            input=$M_HOME/conf/stanza_input.yml
+            if ${installerOnItsOwn}; then useInstaller=False; else useInstaller=True; fi
+            if ${useInstanceStore}; then use_ephemeral=True; else use_ephemeral=False; fi
+            echo "environment.mapr_core_version=$MAPR_CORE " > $input
+            echo "config.mep_version=${MEP} " >> $input
+            echo "config.cluster_name=${clusterName} " >> $input
+            echo "config.ssh_id=$SSH_USER " >> $input
+            echo "config.ssh_key_file=$key_file " >> $input
+            echo "config.provider.config.aws_region=${AWS::Region} " >> $input
+            echo "config.provider.config.cf_stack_name=${AWS::StackName} " >> $input
+            echo "config.provider.config.auto_scaling_group=${ClusterNodes} " >> $input
+            echo "config.provider.config.count=${nodeCount} " >> $input
+            echo "config.provider.config.disk_type=${diskType} " >> $input
+            echo "config.provider.config.disk_size=${diskSize} " >> $input
+            echo "config.provider.config.disk_count=${diskCount} " >> $input
+            echo "config.provider.config.key_name=$key " >> $input
+            echo "config.license_type=M3 " >> $input
+            echo "config.provider.config.use_installer=$useInstaller " >> $input
+            echo "config.provider.config.use_ephemeral=$use_ephemeral " >> $input
+            services="config.services={\"mapr-core\": {\"version\": \"$MAPR_CORE\"}}"
+            chown $M_USER:$M_USER $input
+            status="SUCCESS"
+            [ $(curl -s http://169.254.169.254/latest/meta-data/ | grep public-ipv4) ] && hostip=$(curl http://169.254.169.254/latest/meta-data/public-ipv4) || hostip=$(curl http://169.254.169.254/latest/meta-data/local-ipv4)
+            reason="Installer: https://$hostip:9443"
+            data="MapR Installer"
+            # Run stanza if an URL is defined
+            url=${URL}
+            wget -q -t 10 --retry-connrefused --waitretry=30 --no-check-certificate https://localhost:9443/api/swagger.json -O /tmp/swagger.json
+            if [ -n "$url" ]; then
+              if [ -n "${serviceTemplate}" ]; then
+                services=$(echo $services | sed -e "s/}}/}, \"${serviceTemplate}\": {}}/")
+              fi
+              echo "$services " >> $input
+              cd $M_HOME
+              cmd="bin/mapr-installer-cli install -f -n -t $url -u $M_USER:$M_USER_PWD@localhost:9443 -o @$input -o config.cluster_admin_password=$M_USER_PWD -o config.db_admin_password=$M_USER_PWD -o config.metrics_ui_admin_password=$M_USER_PWD"
+              sudo -u $M_USER $cmd || status="FAILURE"
+              if [ "$status" == "SUCCESS" ]; then
+                t=$(curl -s -k  "https://$M_USER:$M_USER_PWD@localhost:9443/api/config/services?name=mapr-webserver")
+                p=$(echo $t | sed -e 's/.*"ui_ports":\[\([^,]*\).*/\1/')
+                data=";"
+                for h in $(echo $t | sed -e 's/.*"hosts":\[\([^]]*\).*/\1/' | sed -e 's/,/ /g' -e 's/"//g'); do
+                  data+="https://$h:$p "
+                done
+                data+=";"
+              else
+                reason=$(tail -1 $M_HOME/logs/installer-cli.log)
+                hostname=$(hostname -f)
+                [ -z $reason ] && reason="Unable to determine failure reason. Probably failed early provisiong AWS resources. Check installer logs at https://$hostname:9443."
+              fi
+            else
+              input=$M_HOME/conf/config.yml
+              echo "environment: " > $input
+              echo "  mapr_core_version: $MAPR_CORE " >> $input
+              echo "config: " >> $input
+              echo "  ssh_id: $SSH_USER " >> $input
+              echo "  ssh_key_file: $key_file " >> $input
+              echo "  cluster_name: ${clusterName} " >> $input
+              echo "  mep_version: ${MEP} " >> $input
+              echo "  provider: " >> $input
+              echo "    id: AWS " >> $input
+              echo "    config: " >> $input
+              echo "      aws_region: ${AWS::Region} " >> $input
+              echo "      cf_stack_name: ${AWS::StackName} " >> $input
+              echo "      auto_scaling_group: ${ClusterNodes} " >> $input
+              echo "      count: ${nodeCount} " >> $input
+              echo "      disk_type: ${diskType} " >> $input
+              echo "      disk_size: ${diskSize} " >> $input
+              echo "      disk_count: ${diskCount} " >> $input
+              echo "      key_name: $key " >> $input
+              echo "  hosts: [] " >> $input
+              echo "  services: " >> $input
+              echo "    mapr-core: " >> $input
+              echo "      version: $MAPR_CORE " >> $input
+              cd $M_HOME
+              cmd="bin/mapr-installer-cli import -f -n --config -t $input -u $M_USER:$M_USER_PWD@localhost:9443"
+              sudo -u $M_USER $cmd || status="FAILURE"
+              if [ "$status" == "FAILURE" ]; then
+                reason=$(tail -1 $M_HOME/logs/installer-cli.log)
+                hostname=$(hostname -f)
+                [ -z $reason ] && reason="Unable to determine failure reason. Check installer logs at https://$hostname:9443."
+              fi
+            fi
+            echo "{ \"Status\" : \"$status\", \"UniqueId\" : \"${clusterName}\", \"Data\" : \"$data\", \"Reason\" : \"$reason\" }" > $statusFile
+            #curl -T $statusFile '${InstallWaitHandle}'
+          - URL: !FindInMap [ StanzaURL, !Ref "provisioningTemplate", "URL" ]
+            serviceTemplate: !FindInMap [ StanzaURL, !Ref "provisioningTemplate", "serviceTemplate" ]
+            SSH_USER: !FindInMap [Variables, "Keys", "SSHUSER"]
+            MAPR_CORE: !FindInMap [Variables, "Keys", "MAPRCORE"]
+Outputs:
+  ClusterName:
+    Description: Cluster name
+    Value: !Ref clusterName
+  MapRInstallerUrl:
+    Description: MapR installer URL
+    Value: !If [ UsePublicIP, !Join [ "", ["https://", !GetAtt MaprInstaller.PublicDnsName, ":9443/#/status"]], !Join [ "", ["https://", !GetAtt MaprInstaller.PrivateIp, ":9443/#/status"]]]
+  SSHUser:
+    Description: SSH userid
+    Value: !FindInMap [Variables, "Keys", "SSHUSER"]
+  MapRInstallerHost:
+    Description: MapR Installer hostname
+    Value: !If [ UsePublicIP, !GetAtt MaprInstaller.PublicDnsName, !GetAtt MaprInstaller.PrivateIp ]
