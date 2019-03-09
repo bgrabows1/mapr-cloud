@@ -440,6 +440,7 @@ Resources:
                 - "autoscaling:DeleteLaunchConfiguration"
                 - "autoscaling:UpdateAutoScalingGroup"
                 - "autoscaling:SuspendProcesses"
+                - "autoscaling:DisableMetricsCollection"
                 - "ec2:CreateKeyPair"
                 - "ec2:DeleteKeyPair"
                 - "ec2:ImportKeyPair"
