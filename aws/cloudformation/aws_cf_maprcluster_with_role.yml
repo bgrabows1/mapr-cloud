@@ -493,14 +493,6 @@ Resources:
       MaxSize: 0
       MinSize: 0
       VPCZoneIdentifier: !If [CreateVPC, !Split [",", !If [UsePublicIP, !Ref PublicSubnet, !Ref PrivateSubnet]], !Split [",", !Ref useSubnet]]
-#   InstallWaitHandle:
-#     Type: AWS::CloudFormation::WaitConditionHandle
-#   InstallWaitCondition:
-#     Type: AWS::CloudFormation::WaitCondition
-#     DependsOn: VPC
-#     Properties:
-#       Handle: !Ref "InstallWaitHandle"
-#       Timeout: "3000"
   MaprInstaller:
     Type: AWS::EC2::Instance
     DependsOn: VPCGatewayAttachment
@@ -534,7 +526,6 @@ Resources:
             statusFile=$M_HOME/logs/cf_status
             if ! wget -q -t 10 --retry-connrefused --waitretry=30 http://aws.amazon.com; then
               echo "{ \"Status\" : \"FAILURE\", \"UniqueId\" : \"${clusterName}\", \"Data\" : \"No Internet connection\", \"Reason\" : \"No Internet Connection. Internet access is required.\" }" > $statusFile
-              #curl -T $statusFile '${InstallWaitHandle}'
               exit 1
             fi
             $M_HOME/bin/mapr-setup.sh -y upgrade
@@ -545,13 +536,11 @@ Resources:
             echo "$M_USER:$M_USER_PWD" | chpasswd
             if ( $? != 0); then
               echo "{ \"Status\" : \"FAILURE\", \"UniqueId\" : \"${clusterName}\", \"Data\" : \"Unable to reset password for $M_USER\", \"Reason\" : \"Unable to reset password for $M_USER\" }" > $statusFile
-              #curl -T $statusFile '${InstallWaitHandle}'
               exit 1
             fi
             $M_HOME/bin/aws/keypair init ${clusterName}
             if [ ! -f $M_HOME/data/aws_key ]; then
               echo "{ \"Status\" : \"FAILURE\", \"UniqueId\" : \"${clusterName}\", \"Data\" : \"AWS Key file not found. You may be using an old installer.\", \"Reason\" : \"AWS Key file not found. You may be using an old installer.\" }" > $statusFile
-              #curl -T $statusFile '${InstallWaitHandle}'
               exit 1
             fi
             key=$(cat $M_HOME/data/aws_key)
@@ -643,7 +632,6 @@ Resources:
               fi
             fi
             echo "{ \"Status\" : \"$status\", \"UniqueId\" : \"${clusterName}\", \"Data\" : \"$data\", \"Reason\" : \"$reason\" }" > $statusFile
-            #curl -T $statusFile '${InstallWaitHandle}'
           - URL: !FindInMap [ StanzaURL, !Ref "provisioningTemplate", "URL" ]
             serviceTemplate: !FindInMap [ StanzaURL, !Ref "provisioningTemplate", "serviceTemplate" ]
             SSH_USER: !FindInMap [Variables, "Keys", "SSHUSER"]
