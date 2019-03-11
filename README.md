@@ -28,18 +28,33 @@ Use these steps to deploy a cluster using one of the MapR Marketplace offerings 
 
 ## Filling the Template
 **stack name** - The stack name cannot contain spaces.
+
 **clusterAdminPassword** - Password you will use to log into the MCS or the MapR Installer.
+
 **MEP** - Select MapR Exosystem Pack version.
+
 **provisioningTemplate** - List of auto-provisioning templates.
+
 **nodeCount** - Specify the number of nodes in the cluster.
+
 **InstallerOnitsOwn** - Select true to configure MapR Installer on a node that is not part of the cluster.
+
 **instanceType** - MapR supprted instance types in AWS.
+
 **useinstanceStore** - Set to true if machine type supports instance stores (ephemeral disks).
+
 **diskCount** - Number of disks per node.
+
 **diskType** - Specify the disk type.
+
 **diskSize** - Specify the disk size.
+
 **keyName** - Specify the keypair.
+
 **useExistingSubnet** - Leave empty if you would like a new VPC and subnets created.
+
 **securityGroups** - Leave this empty to create a new VPN and subnets.
+
 **assignPublicIP** - Set true if you want to assign public IP to each node.
+
 **publicAccessCIDR** - Specify an IP range you want to restrict from which the stack can be accessed. 
