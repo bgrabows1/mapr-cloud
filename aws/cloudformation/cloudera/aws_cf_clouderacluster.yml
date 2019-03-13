@@ -1,0 +1,95 @@
+---
+  AWSTemplateFormatVersion: '2010-09-09'
+  Description: >
+    Setup a Cloudera cluster for basic usage. All necessary parameters like node
+    types, number of nodes, number of disks, their size and type are configurable.
+
+  Parameters:
+    clusterName:
+      Description: Cluster name
+      Default: cloudera.cluster.com
+      Type: String
+    clouderaVersion:
+      Description: Cloudera version
+      Default: 5.15.2
+      Type: String
+      AllowedValues: ['5.15.2', '5.14.4', '5.13.3', '5.12.2', '5.11.2']
+    databaseType:
+      Description: Database type
+      Default: MySQL
+      Type: String
+      AllowedValues: ['MySQL', 'PostgreSQL']
+    diskType:
+      Description: AWS EBS volume type
+      Default: st1
+      Type: String
+      AllowedValues: ['gp2', 'io1', 'st1']
+    diskSize:
+      Description: Size of AWS EBS volume in GB
+      Default: 100
+      Type: Number
+    keyName:
+      Description: AWS key pair used for creating nodes
+      Type: AWS::EC2::KeyPair::KeyName
+      AllowedPattern: ".+"
+      ConstraintDescription: Please select existing key pair.
+    instanceType:
+      Description: AWS EC2 node type
+      Default: m4.xlarge
+      Type: String
+      AllowedValues: [m4.xlarge, m4.2xlarge, m4.4xlarge, d2.xlarge, d2.2xlarge, d2.4xlarge]
+  Metadata:
+    AWS::CloudFormation::Interface:
+      ParameterGroups:
+        -
+          Label:
+            default: "Cloudera cluster parameters"
+          Parameters:
+            - clusterName
+            - clouderaVersion
+            - databaseType
+        -
+          Label:
+            default: "AWS node parameters"
+          Parameters:
+            - diskType
+            - diskSize
+            - keyName
+            - instanceType
+  Mappings:
+    SubnetConfig:
+      VPC:
+        CIDR: 172.24.0.0/16
+      Public:
+        CIDR: 172.24.0.0/24
+      Private:
+        CIDR: 172.24.8.0/22
+  Resources:
+    VPC:
+      Type: AWS::EC2::VPC
+      Properties:
+        EnableDnsSupport: 'true'
+        EnableDnsHostnames: 'true'
+        CidrBlock:
+          Fn::FindInMap:
+            - SubnetConfig
+            - VPC
+            - CIDR
+        Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref clusterName, "vpc"]]
+    PublicSubnet:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId:
+          Ref: VPC
+        CidrBlock:
+          Fn::FindInMap:
+          - SubnetConfig
+          - Public
+          - CIDR
+        Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref clusterName, "public"]]
+        - Key: Network
+          Value: Public
