@@ -64,6 +64,11 @@
         CIDR: 172.24.0.0/24
       Private:
         CIDR: 172.24.8.0/22
+    RegionMap:
+      eu-west-1: # Ireland
+        AMI: ami-f8fbd981
+      eu-west-2: # London
+        AMI: ami-77dd3e10
   Resources:
     VPC:
       Type: AWS::EC2::VPC
@@ -93,3 +98,75 @@
           Value: !Join ["-", [!Ref clusterName, "public"]]
         - Key: Network
           Value: Public
+    InternetGateway:
+      Type: AWS::EC2::InternetGateway
+      Properties:
+        Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref clusterName, "ig"]]
+    VPCGatewayAttachment:
+      Type: AWS::EC2::VPCGatewayAttachment
+      Properties:
+        VpcId:
+          Ref: VPC
+        InternetGatewayId:
+          Ref: InternetGateway
+    PublicRouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId:
+          Ref: VPC
+        Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref clusterName, "public"]]
+    PublicRoute:
+      Type: AWS::EC2::Route
+      DependsOn: VPCGatewayAttachment
+      Properties:
+        RouteTableId:
+          Ref: PublicRouteTable
+        DestinationCidrBlock: 0.0.0.0/0
+        GatewayId:
+          Ref: InternetGateway
+    ClouderaSecGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: "Installer Access"
+        VpcId:
+          Ref: VPC
+        SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: 0.0.0.0/0
+    ClouderaManager:
+      Type: AWS::EC2::Instance
+      DependsOn: VPCGatewayAttachment
+      Properties:
+        Tags:
+          - Key: Name
+            Value: !Join ["-", [!Ref clusterName, "ClouderaManager"]]
+        ImageId:
+          Fn::FindInMap:
+          - RegionMap
+          - Ref: AWS::Region
+          - AMI
+        KeyName:
+          Ref: keyName
+        InstanceType: !Ref instanceType
+        NetworkInterfaces:
+          - DeleteOnTermination: "true"
+            DeviceIndex: 0
+            AssociatePublicIpAddress: !Ref PublicSubnet
+            SubnetId: !Ref ClouderaSecGroup
+        BlockDeviceMappings:
+          - DeviceName: "/dev/sdm"
+            Ebs:
+              VolumeType: !Ref diskType
+              DeleteOnTermination: "true"
+              VolumeSize: !Ref diskSize
+        UserData:
+          Fn::Base64: !Sub
+            |
+            #!/bin/bash
+            echo "Instance is starting." > /tmp/run
