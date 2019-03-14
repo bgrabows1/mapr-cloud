@@ -26,7 +26,7 @@
       AllowedValues: ['gp2', 'io1', 'st1']
     diskSize:
       Description: Size of AWS EBS volume in GB
-      Default: 100
+      Default: 500
       Type: Number
     keyName:
       Description: AWS key pair used for creating nodes
@@ -157,8 +157,8 @@
         NetworkInterfaces:
           - DeleteOnTermination: "true"
             DeviceIndex: 0
-            AssociatePublicIpAddress: !Ref PublicSubnet
-            SubnetId: !Ref ClouderaSecGroup
+            AssociatePublicIpAddress: "true" 
+            SubnetId: !Ref PublicSubnet
         BlockDeviceMappings:
           - DeviceName: "/dev/sdm"
             Ebs:
