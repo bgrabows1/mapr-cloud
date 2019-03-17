@@ -119,6 +119,13 @@
         Tags:
         - Key: Name
           Value: !Join ["-", [!Ref clusterName, "public"]]
+    PublicSubnetRouteTableAssociation:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId:
+          Ref: PublicSubnet
+        RouteTableId:
+          Ref: PublicRouteTable
     PublicRoute:
       Type: AWS::EC2::Route
       DependsOn: VPCGatewayAttachment
@@ -159,6 +166,7 @@
             DeviceIndex: 0
             AssociatePublicIpAddress: "true" 
             SubnetId: !Ref PublicSubnet
+            GroupSet: !Ref ClouderaSecGroup
         BlockDeviceMappings:
           - DeviceName: "/dev/sdm"
             Ebs:
