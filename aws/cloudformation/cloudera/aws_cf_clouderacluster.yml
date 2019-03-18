@@ -66,9 +66,9 @@
         CIDR: 172.24.8.0/22
     RegionMap:
       eu-west-1: # Ireland
-        AMI: ami-f8fbd981
+        AMI: ami-0e12cbde3e77cbb98
       eu-west-2: # London
-        AMI: ami-77dd3e10
+        AMI: ami-00846a67
   Resources:
     VPC:
       Type: AWS::EC2::VPC
