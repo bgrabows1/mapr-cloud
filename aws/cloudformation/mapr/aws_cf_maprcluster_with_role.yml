@@ -650,3 +650,5 @@ Outputs:
   MapRInstallerHost:
     Description: MapR Installer hostname
     Value: !If [ UsePublicIP, !GetAtt MaprInstaller.PublicDnsName, !GetAtt MaprInstaller.PrivateIp ]
+
+
