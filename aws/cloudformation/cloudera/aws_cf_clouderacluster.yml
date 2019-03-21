@@ -222,20 +222,30 @@
     ClouderaManager:
       Type: AWS::EC2::Instance
       Metadata:
-        Comment: "Prepare config file for MySql."
+        Comment: "AWS EC2 instance provisioning."
         AWS::CloudFormation::Init:
           configSets:
-            default:
+            mysql:
               - 01_mysql-install
               - 02_mysql-config-file
+              - 03_mysql-run-service
+              - 04_mysql-sql-files
+              - 05_mysql-sql-run-queries
           01_mysql-install:
             commands:
-              01_mysql-install-get-rpm
+              01_mysql-install-get-rpm:
+                command: !Sub |
+                  wget http://repo.mysql.com/mysql-community-release-el7-5.noarch.rpm
+              02_mysql-install-rpm:
+                command: !Sub |
+                  rpm -ivh mysql-community-release-el7-5.noarch.rpm
+                  yum install -y mysql-server
           02_mysql-config-file:
             files:
               '/etc/my.cnf':
                 content: !Sub |
                   [mysqld]
+                  skip-grant-tables = true
                   transaction-isolation = READ-COMMITTED
                   # Disabling symbolic-links is recommended to prevent assorted security risks;
                   # to do so, uncomment this line:
@@ -282,6 +292,49 @@
                 mode: "000644"
                 owner: "root"
                 group: "root"
+          03_mysql-run-service:
+            services:
+              sysvinit:
+                mysqld:
+                  enabled: "true"
+                  ensureRunning: "true"
+          04_mysql-sql-files:
+            files:
+              '/tmp/mysql-secure.sql':
+                content: !Sub |
+                  UPDATE mysql.user SET Password=PASSWORD('root') WHERE User='root';
+                  DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
+                  DELETE FROM mysql.user WHERE User='';
+                  FLUSH PRIVILEGES;
+              '/tmp/mysql-cm-dbs.sql':
+                content: !Sub |
+                  CREATE DATABASE IF NOT EXISTS amon DEFAULT CHARACTER SET utf8;
+                  GRANT ALL ON amon.* TO 'amon'@'%' IDENTIFIED BY 'amon_password';
+
+                  CREATE DATABASE IF NOT EXISTS rman DEFAULT CHARACTER SET utf8;
+                  GRANT ALL ON rman.* TO 'rman'@'%' IDENTIFIED BY 'rman_password';
+
+                  CREATE DATABASE IF NOT EXISTS metastore DEFAULT CHARACTER SET utf8;
+                  GRANT ALL ON metastore.* TO 'hive'@'%' IDENTIFIED BY 'hive_password';
+
+                  CREATE DATABASE IF NOT EXISTS sentry DEFAULT CHARACTER SET utf8;
+                  GRANT ALL ON sentry.* TO 'sentry'@'%' IDENTIFIED BY 'sentry_password';
+
+                  CREATE DATABASE IF NOT EXISTS nav DEFAULT CHARACTER SET utf8;
+                  GRANT ALL ON nav.* TO 'nav'@'%' IDENTIFIED BY 'nav_password';
+
+                  CREATE DATABASE IF NOT EXISTS navms DEFAULT CHARACTER SET utf8;
+                  GRANT ALL ON navms.* TO 'navms'@'%' IDENTIFIED BY 'navms_password';
+
+                  CREATE DATABASE IF NOT EXISTS oozie DEFAULT CHARACTER SET utf8;
+                  GRANT ALL PRIVILEGES ON oozie.* TO 'oozie'@'localhost' IDENTIFIED BY 'oozie';
+                  GRANT ALL PRIVILEGES ON oozie.* TO 'oozie'@'%' IDENTIFIED BY 'oozie';
+          05_mysql-sql-run-queries:
+            commands:
+              05_mysql-sql-run-query:
+                command: !Sub |
+                  mysql -u root -proot < /tmp/mysql-secure.sql
+                  mysql -u root -proot < /tmp/mysql-cm-dbs.sql
       DependsOn: VPCGatewayAttachment
       Properties:
         Tags:
@@ -299,7 +352,7 @@
           - DeleteOnTermination: "true"
             DeviceIndex: 0
             AssociatePublicIpAddress: "true"
-            SubnetId: !Ref PrivateSubnet
+            SubnetId: !Ref PublicSubnet
             GroupSet:
               - !Ref ClouderaSecGroup
         BlockDeviceMappings:
@@ -312,28 +365,15 @@
           Fn::Base64:
             !Sub |
               #!/bin/bash
-              # Install MySql server.
+
               yum install -y wget
-              wget http://repo.mysql.com/mysql-community-release-el7-5.noarch.rpm
-              rpm -ivh mysql-community-release-el7-5.noarch.rpm
-              yum install -y mysql-server
               # Get the latest CloudFormation package
               mkdir -p /opt/aws/bin
               wget https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
               easy_install --script-dir /opt/aws/bin aws-cfn-bootstrap-latest.tar.gz
 
               # Start cfn-init
-              /opt/aws/bin/cfn-init --stack ${AWS::StackId} --resource ClouderaManager --region ${AWS::Region} --configsets default
-              systemctl start mysqld
-
-              # Unattended mysql_secure_installation.
-              mysql -e "UPDATE mysql.user SET Password=PASSWORD('root') WHERE User='root';"
-              mysql -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');"
-              mysql -e "DELETE FROM mysql.user WHERE User='';"
-              mysql -e "FLUSH PRIVILEGES;"
-
-              # Create Cloudera services databases.
-              mysql -e "create database database DEFAULT CHARACTER SET utf8;"
+              /opt/aws/bin/cfn-init --stack ${AWS::StackId} --resource ClouderaManager --region ${AWS::Region} --configsets mysql
 
               # Download oracle jdk.
               wget --no-cookies --no-check-certificate --header "Cookie: gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie" "https://download.oracle.com/otn-pub/java/jdk/8u201-b09/42970487e3af4f5aa5bca3f542482c60/jdk-8u201-linux-x64.rpm"
