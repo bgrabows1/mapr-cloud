@@ -231,6 +231,8 @@
               - 03_mysql-run-service
               - 04_mysql-sql-files
               - 05_mysql-sql-run-queries
+            cloudera_manager:
+              - 01_cloudera_manager-java
           01_mysql-install:
             commands:
               01_mysql-install-get-rpm:
@@ -296,8 +298,8 @@
             services:
               sysvinit:
                 mysqld:
-                  enabled: "true"
-                  ensureRunning: "true"
+                  enabled: true
+                  ensureRunning: true
           04_mysql-sql-files:
             files:
               '/tmp/mysql-secure.sql':
@@ -335,6 +337,30 @@
                 command: !Sub |
                   mysql -u root -proot < /tmp/mysql-secure.sql
                   mysql -u root -proot < /tmp/mysql-cm-dbs.sql
+
+          01_cloudera_manager-java:
+            commands:
+              01_cloudera_manager-java-install:
+                command: !Sub |
+                  wget --no-cookies --no-check-certificate --header "Cookie: gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie" "https://download.oracle.com/otn-pub/java/jdk/8u201-b09/42970487e3af4f5aa5bca3f542482c60/jdk-8u201-linux-x64.rpm"
+                  yum install -y jdk-8u201-linux-x64.rpm
+              02_cloudera_manager-add-repo:
+                command: !Sub |
+                  yum-config-manager --add-repo=https://archive.cloudera.com/cm5/redhat/7/x86_64/cm/${clouderaVersion}/
+          02_cloudera_manager-install:
+            commands:
+              02_cloudera_manager-install-yum:
+                command: !Sub |
+                  yum install -y cloudera-manager-daemons cloudera-manager-server cloudera-manager-agent
+            services:
+              sysvinit:
+                cloudera-scm-agent:
+                  enabled: true
+                  ensureRunning: true
+                cloudera-scm-server:
+                  enabled: true
+                  ensureRunning: true
+
       DependsOn: VPCGatewayAttachment
       Properties:
         Tags:
@@ -373,18 +399,4 @@
               easy_install --script-dir /opt/aws/bin aws-cfn-bootstrap-latest.tar.gz
 
               # Start cfn-init
-              /opt/aws/bin/cfn-init --stack ${AWS::StackId} --resource ClouderaManager --region ${AWS::Region} --configsets mysql
-
-              # Download oracle jdk.
-              wget --no-cookies --no-check-certificate --header "Cookie: gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie" "https://download.oracle.com/otn-pub/java/jdk/8u201-b09/42970487e3af4f5aa5bca3f542482c60/jdk-8u201-linux-x64.rpm"
-              yum install -y jdk-8u201-linux-x64.rpm
-
-              # Install Cloudera server packages.
-              yum-config-manager --add-repo=https://archive.cloudera.com/cm5/redhat/7/x86_64/cm/${clouderaVersion}/
-              yum install -y cloudera-manager-daemons cloudera-manager-server
-
-              # Install Cloudera agent packages.
-              yum install -y cloudera-manager-agent
-
-              service cloudera-scm-agent start
-              service cloudera-scm-server start
+              /opt/aws/bin/cfn-init --stack ${AWS::StackId} --resource ClouderaManager --region ${AWS::Region} --configsets mysql,cloudera_manager
