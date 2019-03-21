@@ -378,7 +378,7 @@
           - DeleteOnTermination: "true"
             DeviceIndex: 0
             AssociatePublicIpAddress: "true"
-            SubnetId: !Ref PublicSubnet
+            SubnetId: !Ref PrivateSubnet
             GroupSet:
               - !Ref ClouderaSecGroup
         BlockDeviceMappings:
