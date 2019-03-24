@@ -13,17 +13,27 @@
       Description: Cloudera version
       Default: 5.15.2
       Type: String
-      AllowedValues: ['5.15.2', '5.14.4', '5.13.3', '5.12.2', '5.11.2']
+      AllowedValues:
+        - 5.15.2
+        - 5.14.4
+        - 5.13.3
+        - 5.12.2
+        - 5.11.2
     databaseType:
       Description: Database type
       Default: MySQL
       Type: String
-      AllowedValues: ['MySQL', 'PostgreSQL']
+      AllowedValues:
+        - MySQL
+        - PostgreSQL
     diskType:
       Description: AWS EBS volume type
       Default: st1
       Type: String
-      AllowedValues: ['gp2', 'io1', 'st1']
+      AllowedValues:
+        - gp2
+        - io1
+        - st1
     diskSize:
       Description: Size of AWS EBS volume in GB
       Default: 100
@@ -314,6 +324,9 @@
                   DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
                   DELETE FROM mysql.user WHERE User='';
                   FLUSH PRIVILEGES;
+                mode: "000644"
+                owner: "root"
+                group: "root"
               '/tmp/mysql-cm-dbs.sql':
                 content: !Sub |
                   CREATE DATABASE IF NOT EXISTS amon DEFAULT CHARACTER SET utf8;
@@ -337,6 +350,9 @@
                   CREATE DATABASE IF NOT EXISTS oozie DEFAULT CHARACTER SET utf8;
                   GRANT ALL PRIVILEGES ON oozie.* TO 'oozie'@'localhost' IDENTIFIED BY 'oozie';
                   GRANT ALL PRIVILEGES ON oozie.* TO 'oozie'@'%' IDENTIFIED BY 'oozie';
+                mode: "000644"
+                owner: "root"
+                group: "root"
           05_mysql-sql-run-queries:
             commands:
               05_mysql-sql-run-query:
@@ -364,6 +380,9 @@
                   baseurl=https://archive.cloudera.com/cm5/redhat/7/x86_64/cm/${clouderaVersion}/
                   gpgkey=https://archive.cloudera.com/cm5/redhat/7/x86_64/cm/RPM-GPG-KEY-cloudera
                   gpgcheck = 1
+                mode: "000644"
+                owner: "root"
+                group: "root"
             commands:
               02_cloudera_manager-install-yum:
                 command: !Sub |
