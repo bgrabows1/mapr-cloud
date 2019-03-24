@@ -197,6 +197,11 @@
           FromPort: '22'
           ToPort: '22'
           CidrIp: 0.0.0.0/0
+        SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '7180'
+          ToPort: '7180'
+          CidrIp: 0.0.0.0/0
     BastionHost:
       Type: AWS::EC2::Instance
       DependsOn: VPCGatewayAttachment
@@ -233,6 +238,7 @@
               - 05_mysql-sql-run-queries
             cloudera_manager:
               - 01_cloudera_manager-java
+              - 02_cloudera_manager-install
           01_mysql-install:
             commands:
               01_mysql-install-get-rpm:
@@ -342,12 +348,22 @@
             commands:
               01_cloudera_manager-java-install:
                 command: !Sub |
+                  wget https://dev.mysql.com/get/Downloads/Connector-J/mysql-connector-java-5.1.47.tar.gz
                   wget --no-cookies --no-check-certificate --header "Cookie: gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie" "https://download.oracle.com/otn-pub/java/jdk/8u201-b09/42970487e3af4f5aa5bca3f542482c60/jdk-8u201-linux-x64.rpm"
                   yum install -y jdk-8u201-linux-x64.rpm
-              02_cloudera_manager-add-repo:
-                command: !Sub |
-                  yum-config-manager --add-repo=https://archive.cloudera.com/cm5/redhat/7/x86_64/cm/${clouderaVersion}/
+                  tar zxvf mysql-connector-java-5.1.47.tar.gz
+                  mkdir -p /usr/share/java/
+                  cp mysql-connector-java-5.1.47/mysql-connector-java-5.1.47-bin.jar /usr/share/java/mysql-connector-java.jar
           02_cloudera_manager-install:
+            files:
+              '/etc/yum.repos.d/cloudera-manager.repo':
+                content: !Sub |
+                  [cloudera-manager]
+                  # Packages for Cloudera Manager, Version 5, on RedHat or CentOS 7 x86_64
+                  name=Cloudera Manager
+                  baseurl=https://archive.cloudera.com/cm5/redhat/7/x86_64/cm/${clouderaVersion}/
+                  gpgkey=https://archive.cloudera.com/cm5/redhat/7/x86_64/cm/RPM-GPG-KEY-cloudera
+                  gpgcheck = 1
             commands:
               02_cloudera_manager-install-yum:
                 command: !Sub |
