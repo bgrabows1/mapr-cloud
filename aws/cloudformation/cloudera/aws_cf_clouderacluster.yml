@@ -202,16 +202,33 @@
         GroupDescription: "Installer Access"
         VpcId:
           Ref: VPC
-        SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: '22'
-          ToPort: '22'
-          CidrIp: 0.0.0.0/0
-        SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: '7180'
-          ToPort: '7180'
-          CidrIp: 0.0.0.0/0
+    ClouderaSecGroupSSHIngress:
+      Type: AWS::EC2::SecurityGroupIngress
+      DependsOn: ClouderaSecGroup
+      Properties:
+        GroupId: !Ref ClouderaSecGroup
+        IpProtocol: tcp
+        FromPort: '22'
+        ToPort: '22'
+        CidrIp: 0.0.0.0/0
+    ClouderaSecGroupCMIngress:
+      Type: AWS::EC2::SecurityGroupIngress
+      DependsOn: ClouderaSecGroup
+      Properties:
+        GroupId: !Ref ClouderaSecGroup
+        IpProtocol: tcp
+        FromPort: '7180'
+        ToPort: '7180'
+        CidrIp: 0.0.0.0/0
+    ClouderaSecGroupInsideTrafficIngress:
+      Type: AWS::EC2::SecurityGroupIngress
+      DependsOn: ClouderaSecGroup
+      Properties:
+        GroupId: !Ref ClouderaSecGroup
+        IpProtocol: tcp
+        FromPort: "0"
+        ToPort: "65535"
+        SourceSecurityGroupId: !Ref ClouderaSecGroup
     BastionHost:
       Type: AWS::EC2::Instance
       DependsOn: VPCGatewayAttachment
