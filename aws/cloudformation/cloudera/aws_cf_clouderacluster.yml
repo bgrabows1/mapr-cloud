@@ -19,6 +19,12 @@
         - 5.13.3
         - 5.12.2
         - 5.11.2
+    awsSecretKeyId:
+      Description: AWS secret key id
+      Type: String
+    awsSecretAccessKey:
+      Description: AWS secret access key
+      Type: String
     databaseType:
       Description: Database type
       Default: MySQL
@@ -66,6 +72,12 @@
             - diskSize
             - keyName
             - instanceType
+        -
+          Label:
+            default: "AWS credentials"
+          Parameters:
+            - awsSecretKeyId
+            - awsSecretAccessKey
   Mappings:
     SubnetConfig:
       VPC:
@@ -386,6 +398,9 @@
                   CREATE DATABASE IF NOT EXISTS navms DEFAULT CHARACTER SET utf8;
                   GRANT ALL ON navms.* TO 'navms'@'%' IDENTIFIED BY 'navms_password';
 
+                  CREATE DATABASE IF NOT EXISTS cm DEFAULT CHARACTER SET utf8;
+                  GRANT ALL ON cm.* TO 'cm'@'%' IDENTIFIED BY 'cm_password';
+
                   CREATE DATABASE IF NOT EXISTS oozie DEFAULT CHARACTER SET utf8;
                   GRANT ALL PRIVILEGES ON oozie.* TO 'oozie'@'localhost' IDENTIFIED BY 'oozie';
                   GRANT ALL PRIVILEGES ON oozie.* TO 'oozie'@'%' IDENTIFIED BY 'oozie';
@@ -426,6 +441,9 @@
               02_cloudera_manager-install-yum:
                 command: !Sub |
                   yum install -y cloudera-manager-daemons cloudera-manager-server cloudera-manager-agent
+              02_cloudera_manager-scm-prepare-db:
+                command: !Sub |
+                  /usr/share/cmf/schema/scm_prepare_database.sh mysql cm cm cm_password
             services:
               sysvinit:
                 cloudera-scm-agent:
@@ -445,8 +463,19 @@
                   file = /var/log/cloudera-scm-server/cloudera-scm-server.log
                   log_stream_name = ClouderaManagerLogStream
                   log_group_name = ${ClouderaManagerLogGroup}
-                  datetime_format = %b %d %H:%M:%S 2019-03-27 10:56:38,888
+                  datetime_format = %b %d %H:%M:%S
                   initial_position = start_of_file
+                mode: "000644"
+                owner: "root"
+                group: "root"
+              '/var/awslogs/etc/aws.conf':
+                content: !Sub |
+                  [plugins]
+                  cwlogs = cwlogs
+                  [default]
+                  region = ${AWS::Region}
+                  aws_access_key_id = ${awsSecretKeyId}
+                  aws_secret_access_key = ${awsSecretAccessKey}
                 mode: "000644"
                 owner: "root"
                 group: "root"
@@ -457,7 +486,11 @@
               02_cloudwatch-agent-install:
                 command: !Sub |
                   python awslogs-agent-setup.py -n -r ${AWS::Region} -c /tmp/awslogs.conf
-
+            services:
+              sysvinit:
+                awslogs:
+                  enabled: true
+                  ensureRunning: true
       DependsOn: VPCGatewayAttachment
       Properties:
         Tags:
