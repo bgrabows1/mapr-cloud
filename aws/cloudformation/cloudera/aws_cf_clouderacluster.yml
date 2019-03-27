@@ -229,6 +229,26 @@
         FromPort: "0"
         ToPort: "65535"
         SourceSecurityGroupId: !Ref ClouderaSecGroup
+    ClouderaManagerLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        RetentionInDays: 3
+    LogStream:
+      Type: AWS::Logs::LogStream
+      DependsOn: ClouderaManagerLogGroup
+      Properties:
+        LogGroupName: !Ref ClouderaManagerLogGroup
+        LogStreamName: "ClouderaManagerLogStream"
+    ErrorMetricFilter:
+      Type: AWS::Logs::MetricFilter
+      Properties:
+        LogGroupName:
+          Ref: ClouderaManagerLogGroup
+        FilterPattern: "[ERROR]"
+        MetricTransformations:
+        - MetricValue: '1'
+          MetricNamespace: CM
+          MetricName: ErrorCount
     BastionHost:
       Type: AWS::EC2::Instance
       DependsOn: VPCGatewayAttachment
@@ -266,6 +286,8 @@
             cloudera_manager:
               - 01_cloudera_manager-java
               - 02_cloudera_manager-install
+            cloudwatch:
+              - 01_cloudwatch-agent
           01_mysql-install:
             commands:
               01_mysql-install-get-rpm:
@@ -412,6 +434,29 @@
                 cloudera-scm-server:
                   enabled: true
                   ensureRunning: true
+          01_cloudwatch-agent:
+            files:
+              '/tmp/awslogs.conf':
+                content: !Sub |
+                  [general]
+                  state_file = /var/awslogs/state/agent-state
+
+                  [/var/log/cloudera-scm-server/cloudera-scm-server]
+                  file = /var/log/cloudera-scm-server/cloudera-scm-server.log
+                  log_stream_name = ClouderaManagerLogStream
+                  log_group_name = ${ClouderaManagerLogGroup}
+                  datetime_format = %b %d %H:%M:%S 2019-03-27 10:56:38,888
+                  initial_position = start_of_file
+                mode: "000644"
+                owner: "root"
+                group: "root"
+            commands:
+              01_cloudwatch-agent-get:
+                command: !Sub |
+                  wget https://s3.amazonaws.com/aws-cloudwatch/downloads/latest/awslogs-agent-setup.py
+              02_cloudwatch-agent-install:
+                command: !Sub |
+                  python awslogs-agent-setup.py -n -r ${AWS::Region} -c /tmp/awslogs.conf
 
       DependsOn: VPCGatewayAttachment
       Properties:
@@ -451,4 +496,4 @@
               easy_install --script-dir /opt/aws/bin aws-cfn-bootstrap-latest.tar.gz
 
               # Start cfn-init
-              /opt/aws/bin/cfn-init --stack ${AWS::StackId} --resource ClouderaManager --region ${AWS::Region} --configsets mysql,cloudera_manager
+              /opt/aws/bin/cfn-init --stack ${AWS::StackId} --resource ClouderaManager --region ${AWS::Region} --configsets mysql,cloudera_manager,cloudwatch
