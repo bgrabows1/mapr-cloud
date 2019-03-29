@@ -25,6 +25,7 @@
     awsSecretAccessKey:
       Description: AWS secret access key
       Type: String
+      NoEcho: True
     databaseType:
       Description: Database type
       Default: MySQL
@@ -43,6 +44,9 @@
     diskSize:
       Description: Size of AWS EBS volume in GB
       Default: 100
+      Type: Number
+    nodeNumber:
+      Description: Number of nodes in Cloudera cluster.
       Type: Number
     keyName:
       Description: AWS key pair used for creating nodes
@@ -70,6 +74,7 @@
           Parameters:
             - diskType
             - diskSize
+            - nodeNumber
             - keyName
             - instanceType
         -
@@ -261,6 +266,35 @@
         - MetricValue: '1'
           MetricNamespace: CM
           MetricName: ErrorCount
+    NodesGroup:
+      Type: AWS::AutoScaling::AutoScalingGroup
+      Properties:
+        LaunchConfigurationName: !Ref LaunchConfig
+        MinSize: !Ref nodeNumber
+        MaxSize: !Ref nodeNumber
+        VPCZoneIdentifier:
+          - !Ref PrivateSubnet
+        Tags:
+          - Key: Name
+            Value: !Join [ "-", [ "node", !Ref clusterName ] ]
+            PropagateAtLaunch: true
+      UpdatePolicy:
+        AutoScalingRollingUpdate:
+          MinInstanceInService: 1
+          MaxBatchSize: 1
+    LaunchConfig:
+      Type: AWS::AutoScaling::LaunchConfiguration
+      Properties:
+        KeyName: !Ref keyName
+        ImageId: !FindInMap [ RegionMap, !Ref "AWS::Region", "AMI" ]
+        InstanceType: !Ref instanceType
+        EbsOptimized: True
+        BlockDeviceMappings:
+        - DeviceName: "/dev/sdk"
+          Ebs:
+            VolumeSize: !Ref diskSize
+        SecurityGroups:
+          - !Ref ClouderaSecGroup
     BastionHost:
       Type: AWS::EC2::Instance
       DependsOn: VPCGatewayAttachment
