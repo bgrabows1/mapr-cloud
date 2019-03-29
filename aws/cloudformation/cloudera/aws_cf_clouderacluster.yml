@@ -213,10 +213,25 @@
         DestinationCidrBlock: 0.0.0.0/0
         NatGatewayId:
           Ref: NATGateway
+    ClusterNodesSecGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: "Cluster nodes Access"
+        VpcId:
+          Ref: VPC
+    ClusterNodesSecGroupInsideTrafficIngress:
+      Type: AWS::EC2::SecurityGroupIngress
+      DependsOn: ClusterNodesSecGroup
+      Properties:
+        GroupId: !Ref ClusterNodesSecGroup
+        IpProtocol: tcp
+        FromPort: "0"
+        ToPort: "65535"
+        SourceSecurityGroupId: !Ref ClusterNodesSecGroup
     ClouderaSecGroup:
       Type: AWS::EC2::SecurityGroup
       Properties:
-        GroupDescription: "Installer Access"
+        GroupDescription: "Cloudera Manager Access"
         VpcId:
           Ref: VPC
     ClouderaSecGroupSSHIngress:
@@ -236,6 +251,15 @@
         IpProtocol: tcp
         FromPort: '7180'
         ToPort: '7180'
+        CidrIp: 0.0.0.0/0
+    ClouderaSecGroupAgentIngress:
+      Type: AWS::EC2::SecurityGroupIngress
+      DependsOn: ClouderaSecGroup
+      Properties:
+        GroupId: !Ref ClouderaSecGroup
+        IpProtocol: tcp
+        FromPort: '7182'
+        ToPort: '7182'
         CidrIp: 0.0.0.0/0
     ClouderaSecGroupInsideTrafficIngress:
       Type: AWS::EC2::SecurityGroupIngress
@@ -284,6 +308,13 @@
           MaxBatchSize: 1
     LaunchConfig:
       Type: AWS::AutoScaling::LaunchConfiguration
+      Metadata:
+        Comment: Install Cloudera agent Packages
+        AWS::CloudFormation::Init:
+          config:
+            packages:
+              yum:
+                wget: []
       Properties:
         KeyName: !Ref keyName
         ImageId: !FindInMap [ RegionMap, !Ref "AWS::Region", "AMI" ]
@@ -294,7 +325,7 @@
           Ebs:
             VolumeSize: !Ref diskSize
         SecurityGroups:
-          - !Ref ClouderaSecGroup
+          - !Ref ClusterNodesSecGroup
     BastionHost:
       Type: AWS::EC2::Instance
       DependsOn: VPCGatewayAttachment
@@ -542,7 +573,7 @@
           - DeleteOnTermination: "true"
             DeviceIndex: 0
             AssociatePublicIpAddress: "true"
-            SubnetId: !Ref PrivateSubnet
+            SubnetId: !Ref PublicSubnet
             GroupSet:
               - !Ref ClouderaSecGroup
         BlockDeviceMappings:
@@ -564,3 +595,14 @@
 
               # Start cfn-init
               /opt/aws/bin/cfn-init --stack ${AWS::StackId} --resource ClouderaManager --region ${AWS::Region} --configsets mysql,cloudera_manager,cloudwatch
+
+  Outputs:
+    ClusterName:
+      Description: Cluster name
+      Value: !Ref clusterName
+    ClouderaManagerUrl:
+      Description: Cloudera Manager URL
+      Value: !Join [ "", ["http://", !GetAtt ClouderaManager.PublicDnsName, ":7180"]]
+    ClusterNodeNumber:
+      Description: Number of cluster nodes
+      Value: !Ref nodeNumber
