@@ -280,6 +280,16 @@
       Properties:
         LogGroupName: !Ref ClouderaManagerLogGroup
         LogStreamName: "ClouderaManagerLogStream"
+    ClusterNodesLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        RetentionInDays: 3
+    ClusterNodesLogStream:
+      Type: AWS::Logs::LogStream
+      DependsOn: ClusterNodesLogGroup
+      Properties:
+        LogGroupName: !Ref ClusterNodesLogGroup
+        LogStreamName: "ClusterNodesLogStream"
     ErrorMetricFilter:
       Type: AWS::Logs::MetricFilter
       Properties:
@@ -311,10 +321,48 @@
       Metadata:
         Comment: Install Cloudera agent Packages
         AWS::CloudFormation::Init:
-          config:
-            packages:
-              yum:
-                wget: []
+          configSets:
+            cloudwatch:
+              - 01_cloudwatch-agent
+            01_cloudwatch-agent:
+              files:
+                '/tmp/awslogs.conf':
+                  content: !Sub |
+                    [general]
+                    state_file = /var/awslogs/state/agent-state
+
+                    [/var/log/cloudera-scm-agent/cloudera-scm-agent]
+                    file = /var/log/cloudera-scm-agent/cloudera-scm-agent.log
+                    log_stream_name = ClusterNodesLogStream
+                    log_group_name = ${ClusterNodesLogGroup}
+                    datetime_format = %b %d %H:%M:%S
+                    initial_position = start_of_file
+                  mode: "000644"
+                  owner: "root"
+                  group: "root"
+                '/var/awslogs/etc/aws.conf':
+                  content: !Sub |
+                    [plugins]
+                    cwlogs = cwlogs
+                    [default]
+                    region = ${AWS::Region}
+                    aws_access_key_id = ${awsSecretKeyId}
+                    aws_secret_access_key = ${awsSecretAccessKey}
+                  mode: "000644"
+                  owner: "root"
+                  group: "root"
+              commands:
+                01_cloudwatch-agent-get:
+                  command: !Sub |
+                    wget https://s3.amazonaws.com/aws-cloudwatch/downloads/latest/awslogs-agent-setup.py
+                02_cloudwatch-agent-install:
+                  command: !Sub |
+                    python awslogs-agent-setup.py -n -r ${AWS::Region} -c /tmp/awslogs.conf
+              services:
+                sysvinit:
+                  awslogs:
+                    enabled: true
+                    ensureRunning: true
       Properties:
         KeyName: !Ref keyName
         ImageId: !FindInMap [ RegionMap, !Ref "AWS::Region", "AMI" ]
@@ -326,6 +374,19 @@
             VolumeSize: !Ref diskSize
         SecurityGroups:
           - !Ref ClusterNodesSecGroup
+        UserData:
+          Fn::Base64:
+            !Sub |
+              #!/bin/bash
+
+              yum install -y wget
+              # Get the latest CloudFormation package
+              mkdir -p /opt/aws/bin
+              wget https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
+              easy_install --script-dir /opt/aws/bin aws-cfn-bootstrap-latest.tar.gz
+
+              # Start cfn-init
+              /opt/aws/bin/cfn-init --stack ${AWS::StackId} --resource LaunchConfig --region ${AWS::Region} --configsets cloudwatch
     BastionHost:
       Type: AWS::EC2::Instance
       DependsOn: VPCGatewayAttachment
