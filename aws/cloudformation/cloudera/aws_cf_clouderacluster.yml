@@ -35,7 +35,7 @@
         - PostgreSQL
     diskType:
       Description: AWS EBS volume type
-      Default: st1
+      Default: gp2
       Type: String
       AllowedValues:
         - gp2
